@@ -1,0 +1,7 @@
+---
+# defaults file for kafka
+kafka_path: /data/kafka
+jdk_path: /opt/jdk
+kafka_vers: 3.8.0
+scala_vers: 2.13
+kafka_cluster_id: 0KwDQaw0TNCIa0V3alTfbQ

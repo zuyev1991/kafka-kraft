@@ -1,0 +1,18 @@
+[Unit]
+Requires=network.target remote-fs.target
+After=network.target remote-fs.target
+
+[Service]
+WorkingDirectory=/opt/kafka_{{scala_vers}}-{{kafka_vers}}
+Environment="JAVA_HOME=/opt/jdk-11"
+Environment=KAFKA_HEAP_OPTS="-Xmx4096M -Xms1024M"
+Environment="KAFKA_OPTS=-Djava.security.auth.login.config=/opt/kafka_{{scala_vers}}-{{kafka_vers}}/config/kraft/kafka_server_jaas.conf"
+Type=simple
+User=kafka
+ExecStart=/opt/kafka_{{scala_vers}}-{{kafka_vers}}/bin/kafka-server-start.sh /opt/kafka_{{scala_vers}}-{{kafka_vers}}/config/kraft/server.properties
+ExecStop=/opt/kafka_{{scala_vers}}-{{kafka_vers}}/bin/kafka-server-stop.sh
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+

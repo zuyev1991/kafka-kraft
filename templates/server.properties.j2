@@ -1,0 +1,58 @@
+process.roles=broker,controller
+node.id={{ groups['all'].index(inventory_hostname) +1 }}
+controller.quorum.voters={% for item in  groups['all'] %}{{loop.index}}@{{ hostvars[item]['ansible_facts']['default_ipv4']['address'] }}:9093{% if not loop.last %},{% endif %}
+{%- endfor %}
+
+# Оптимизация listener'ов для разделения трафика
+listeners=SASL_PLAINTEXT://{{ ansible_default_ipv4.address }}:9092,SASL_CONTROLLER://{{ ansible_default_ipv4.address }}:9093
+advertised.listeners=SASL_PLAINTEXT://{{ ansible_default_ipv4.address }}:9092
+controller.listener.names=SASL_CONTROLLER
+
+# Улучшенные параметры безопасности
+security.inter.broker.protocol=SASL_PLAINTEXT
+sasl.mechanism.inter.broker.protocol=PLAIN
+sasl.mechanism.controller.protocol=PLAIN
+sasl.enabled.mechanisms=PLAIN
+authorizer.class.name=org.apache.kafka.metadata.authorizer.StandardAuthorizer
+super.users=User:admin
+listener.security.protocol.map=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,SSL:SSL,SASL_PLAINTEXT:SASL_PLAINTEXT,SASL_SSL:SASL_SSL,SASL_CONTROLLER:SASL_PLAINTEXT
+
+# Производительность сети и потоков ввода-вывода
+
+# Половина доступных CPU для сетевых операций
+num.network.threads={{ ansible_processor_vcpus // 2 }} 
+# Количество потоков ввода-вывода по количеству процессоров
+num.io.threads={{ ansible_processor_vcpus }}
+# Увеличение для повышения пропускной способности 
+socket.send.buffer.bytes=512000  
+socket.receive.buffer.bytes=512000
+socket.request.max.bytes=104857600
+session.timeout.ms=120000
+socket.connection.setup.timeout.ms=60000
+socket.connection.setup.timeout.max.ms=300000
+transaction.abort.timed.out.transaction.cleanup.interval.ms=300000
+
+# Логи и хранилище
+log.dirs={{ kafka_path }}/kraft-combined-logs
+metadata.log.dir={{ kafka_path }}/metadata-logs
+num.partitions=3
+log.retention.hours=168
+log.retention.check.interval.ms=300000
+# Ограничение размера сегмента лога до 1ГБ для лучшего управления диском
+log.segment.bytes=1073741824
+# Включение лог-клинера для старых записей  
+log.cleaner.enable=true  
+
+# Оптимизация восстановления данных
+
+# Увеличение потоков для восстановления
+num.recovery.threads.per.data.dir=4  
+
+# Репликация и отказоустойчивость
+offsets.topic.replication.factor=3
+transaction.state.log.replication.factor=3
+transaction.state.log.min.isr=2
+default.replication.factor=3
+# Минимум 2 реплики для подтверждения записи
+min.insync.replicas=2
+

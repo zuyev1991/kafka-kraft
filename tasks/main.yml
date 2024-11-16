@@ -1,0 +1,140 @@
+---
+# tasks file for kafka-kraft
+- name: create kafka user
+  user:
+    name: kafka
+    shell: /bin/false
+
+- name: build kafka directory structures
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: kafka
+    group: kafka
+    mode: 0750
+    recurse: yes
+  loop:
+    - "{{ kafka_path }}/logs"
+    - "{{ kafka_path }}/metadata-logs"
+    - "{{ kafka_path }}/kraft-combined-logs"
+
+- name: correct system limits
+  pam_limits: domain=* limit_type=- limit_item={{ item.name }} value={{ item.value }}
+  with_items:
+    - { "name": "nofile", "value": "512000" }
+    - { "name": "nproc", "value": "64000" }
+
+- name: change sysctl options
+  sysctl:
+    name: "{{ item.name }}"
+    value: "{{ item.value }}"
+    sysctl_set: yes
+    state: present
+    reload: yes
+  ignore_errors: true
+  with_items:
+    - { "name": "vm.swappiness", "value": "1" }
+    - { "name": "net.ipv4.ip_forward", "value": "1" }
+    - { "name": "net.ipv4.conf.all.rp_filter", "value": "1" }
+    - { "name": "net.ipv4.conf.default.rp_filter", "value": "1" }
+
+- name: download java source
+  get_url:
+    url: "{{ item.src }}"
+    dest: "{{item.dest}}"
+  with_items:
+    - {
+        src: "https://download.java.net/openjdk/jdk11/ri/openjdk-11+28_linux-x64_bin.tar.gz",
+        dest: "/tmp/openjdk-11+28_linux-x64_bin.tar.gz",
+      }
+    - {
+        src: "https://downloads.apache.org/kafka/{{kafka_vers}}/kafka_{{scala_vers}}-{{kafka_vers}}.tgz",
+        dest: "/tmp/kafka_{{scala_vers}}-{{kafka_vers}}.tgz",
+      }
+
+- name: expand archive to source folder
+  unarchive:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    remote_src: yes
+    owner: kafka
+    group: kafka
+    mode: 0640
+  with_items:
+    - { src: "/tmp/openjdk-11+28_linux-x64_bin.tar.gz", dest: "/opt" }
+    - { src: "/tmp/kafka_{{scala_vers}}-{{kafka_vers}}.tgz", dest: "/opt" }
+
+- name: set execute bit on files in bin dir
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: 0750
+    recurse: yes
+  with_items:
+    - "/opt/jdk-11/bin"
+    - "/opt/kafka_{{scala_vers}}-{{kafka_vers}}/bin"
+
+- name: set execute bit on folder
+  file:
+    path: "{{ item }}"
+    state: directory
+    mode: 0750
+    recurse: yes
+    owner: kafka
+    group: kafka
+  with_items:
+    - "/opt/kafka_{{scala_vers}}-{{kafka_vers}}"
+    - "/opt/jdk-11"
+
+- name: kafka config files
+  template:
+    src: templates/{{ item.src }}.j2
+    dest: "{{ item.dest }}{{ item.src }}"
+    owner: kafka
+    group: kafka
+    mode: 0640
+  with_items:
+    - {
+        src: "server.properties",
+        dest: "/opt/kafka_{{scala_vers}}-{{kafka_vers}}/config/kraft/",
+      }
+    - {
+        src: "kafka_server_jaas.conf",
+        dest: "/opt/kafka_{{scala_vers}}-{{kafka_vers}}/config/kraft/",
+      }
+    - {
+        src: "kafka_cli.conf",
+        dest: "/opt/kafka_{{scala_vers}}-{{kafka_vers}}/config/kraft/",
+      }
+
+- name: check if kraft logs dir has been initialized
+  shell: "/opt/kafka_{{scala_vers}}-{{kafka_vers}}/bin/kafka-storage.sh info -c /opt/kafka_{{scala_vers}}-{{kafka_vers}}/config/kraft/server.properties"
+  register: storage_init
+  ignore_errors: yes
+
+- name: init kraft logs dir
+  shell: "/opt/kafka_{{scala_vers}}-{{kafka_vers}}/bin/kafka-storage.sh format -t {{  kafka_cluster_id }} -c /opt/kafka_{{scala_vers}}-{{kafka_vers}}/config/kraft/server.properties"
+  when: '"is not formatted" in storage_init.stdout'
+
+- name: add kafka bin path to all users' PATH
+  template:
+    src: templates/kafka_path.sh.j2
+    dest: /etc/profile.d/kafka_path.sh
+    owner: root
+    group: root
+    mode: 0644
+    seuser: system_u
+    serole: object_r
+    setype: bin_t
+    selevel: s0
+
+- name: install kafka service systemd unit file
+  template:
+    src: templates/{{ item.src }}.j2
+    dest: "{{item.dest}}{{ item.src }}"
+    owner: root
+    group: root
+    mode: 0644
+  with_items:
+    - { src: "kafka-server.service", dest: "/usr/lib/systemd/system/" }
+  notify: reload systemd
